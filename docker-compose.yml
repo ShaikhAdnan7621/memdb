@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: memdb_postgres
+    environment:
+      POSTGRES_USER: memdb_user
+      POSTGRES_PASSWORD: memdb_pass
+      POSTGRES_DB: memdb_db
+      POSTGRES_INITDB_ARGS: "-c shared_buffers=256MB -c max_connections=100"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memdb_user -d memdb_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - memdb_network
+    restart: unless-stopped
+
+  # MemDB Application (Optional)
+  memdb_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memdb_app
+    environment:
+      PG_DSN: postgresql://memdb_user:memdb_pass@postgres:5432/memdb_db
+      FLUSH_INTERVAL: 30
+      EVICT_INTERVAL: 60
+      MAX_CONNECTIONS: 10
+      HOST: 0.0.0.0
+      PORT: 8000
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - memdb_network
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # pgAdmin for Database Management (Optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: memdb_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@memdb.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - memdb_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  memdb_network:
+    driver: bridge
